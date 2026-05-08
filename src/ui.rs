@@ -10,8 +10,8 @@ use crate::app::{App, EditMode, InputMode, View};
 use crate::header;
 
 // Phosphor-green palette
-const GREEN_DIM: Color = Color::Rgb(40, 100, 40);
-const GREEN_BRIGHT: Color = Color::Rgb(0, 255, 65);
+const GREEN_DIM: Color = Color::Rgb(0, 128, 100);
+const GREEN_BRIGHT: Color = Color::Rgb(0, 255, 200);
 const CYAN: Color = Color::Rgb(0, 200, 200);
 const YELLOW: Color = Color::Rgb(255, 230, 0);
 const DIM: Color = Color::Rgb(60, 60, 60);
