@@ -10,12 +10,22 @@ pub fn parse_header(editor: &Editor) -> HeaderInfo {
     let magic = editor.read_range(0, 8);
 
     // ELF: 0x7f 'E' 'L' 'F'
-    if magic.len() >= 4 && magic[0] == 0x7f && magic[1] == b'E' && magic[2] == b'L' && magic[3] == b'F' {
+    if magic.len() >= 4
+        && magic[0] == 0x7f
+        && magic[1] == b'E'
+        && magic[2] == b'L'
+        && magic[3] == b'F'
+    {
         return parse_elf(editor);
     }
 
     // GGUF: 'G' 'G' 'U' 'F'
-    if magic.len() >= 4 && magic[0] == b'G' && magic[1] == b'G' && magic[2] == b'U' && magic[3] == b'F' {
+    if magic.len() >= 4
+        && magic[0] == b'G'
+        && magic[1] == b'G'
+        && magic[2] == b'U'
+        && magic[3] == b'F'
+    {
         return parse_gguf(editor);
     }
 
@@ -39,19 +49,25 @@ pub fn parse_header(editor: &Editor) -> HeaderInfo {
 
 fn read_u16_le(editor: &Editor, offset: usize) -> u16 {
     let b = editor.read_range(offset, 2);
-    if b.len() < 2 { return 0; }
+    if b.len() < 2 {
+        return 0;
+    }
     u16::from_le_bytes([b[0], b[1]])
 }
 
 fn read_u32_le(editor: &Editor, offset: usize) -> u32 {
     let b = editor.read_range(offset, 4);
-    if b.len() < 4 { return 0; }
+    if b.len() < 4 {
+        return 0;
+    }
     u32::from_le_bytes([b[0], b[1], b[2], b[3]])
 }
 
 fn read_u64_le(editor: &Editor, offset: usize) -> u64 {
     let b = editor.read_range(offset, 8);
-    if b.len() < 8 { return 0; }
+    if b.len() < 8 {
+        return 0;
+    }
     u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
 }
 
@@ -108,7 +124,10 @@ fn parse_elf(editor: &Editor) -> HeaderInfo {
         0xF3 => "RISC-V",
         _ => "Other",
     };
-    fields.push(("Machine".into(), format!("{} (0x{:X})", machine_str, e_machine)));
+    fields.push((
+        "Machine".into(),
+        format!("{} (0x{:X})", machine_str, e_machine),
+    ));
 
     if ei_class == 2 {
         // 64-bit
@@ -238,7 +257,11 @@ fn parse_gguf(editor: &Editor) -> HeaderInfo {
             7 => {
                 let v = editor.read_byte(offset).unwrap_or(0);
                 offset += 1;
-                if v != 0 { "true".into() } else { "false".into() }
+                if v != 0 {
+                    "true".into()
+                } else {
+                    "false".into()
+                }
             }
             // STRING
             8 => {
@@ -316,7 +339,10 @@ fn parse_pe(editor: &Editor) -> HeaderInfo {
                 0xAA64 => "AArch64",
                 _ => "Other",
             };
-            fields.push(("Machine".into(), format!("{} (0x{:X})", machine_str, machine)));
+            fields.push((
+                "Machine".into(),
+                format!("{} (0x{:X})", machine_str, machine),
+            ));
 
             let num_sections = read_u16_le(editor, pe_offset + 6);
             fields.push(("Sections".into(), format!("{}", num_sections)));
@@ -372,7 +398,10 @@ fn parse_generic(editor: &Editor) -> HeaderInfo {
 
     // Try to identify as ASCII text
     let sample = editor.read_range(0, 256.min(editor.file_size()));
-    let printable = sample.iter().filter(|b| b.is_ascii_graphic() || b.is_ascii_whitespace()).count();
+    let printable = sample
+        .iter()
+        .filter(|b| b.is_ascii_graphic() || b.is_ascii_whitespace())
+        .count();
     let ratio = printable as f64 / sample.len() as f64;
     if ratio > 0.85 {
         fields.push(("Likely type".into(), "Text / ASCII".into()));
@@ -394,8 +423,106 @@ fn format_size(bytes: usize) -> String {
     } else if bytes < 1024 * 1024 {
         format!("{:.1} KiB ({} bytes)", bytes as f64 / 1024.0, bytes)
     } else if bytes < 1024 * 1024 * 1024 {
-        format!("{:.1} MiB ({} bytes)", bytes as f64 / (1024.0 * 1024.0), bytes)
+        format!(
+            "{:.1} MiB ({} bytes)",
+            bytes as f64 / (1024.0 * 1024.0),
+            bytes
+        )
     } else {
-        format!("{:.2} GiB ({} bytes)", bytes as f64 / (1024.0 * 1024.0 * 1024.0), bytes)
+        format!(
+            "{:.2} GiB ({} bytes)",
+            bytes as f64 / (1024.0 * 1024.0 * 1024.0),
+            bytes
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TempBin(PathBuf);
+
+    impl TempBin {
+        fn new(bytes: &[u8]) -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let mut path = std::env::temp_dir();
+            path.push(format!("hex-forge-hdr-{}-{}.bin", std::process::id(), n));
+            fs::write(&path, bytes).unwrap();
+            TempBin(path)
+        }
+    }
+
+    impl Drop for TempBin {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    fn editor_with(bytes: &[u8]) -> (Editor, TempBin) {
+        let tmp = TempBin::new(bytes);
+        let editor = Editor::open(&tmp.0, true).unwrap();
+        (editor, tmp)
+    }
+
+    #[test]
+    fn format_size_uses_correct_units() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1023), "1023 B");
+        assert!(format_size(2048).starts_with("2.0 KiB"));
+        assert!(format_size(5 * 1024 * 1024).starts_with("5.0 MiB"));
+        assert!(format_size(3 * 1024 * 1024 * 1024).starts_with("3.00 GiB"));
+    }
+
+    #[test]
+    fn detects_elf() {
+        // ELF magic + class=2 (64-bit) padding out to a small header.
+        let mut buf = vec![0u8; 64];
+        buf[0..4].copy_from_slice(&[0x7f, b'E', b'L', b'F']);
+        buf[4] = 2; // 64-bit
+        let (editor, _t) = editor_with(&buf);
+        let info = parse_header(&editor);
+        assert_eq!(info.format_name, "ELF Binary");
+    }
+
+    #[test]
+    fn detects_gguf() {
+        let mut buf = vec![0u8; 32];
+        buf[0..4].copy_from_slice(b"GGUF");
+        let (editor, _t) = editor_with(&buf);
+        let info = parse_header(&editor);
+        assert_eq!(info.format_name, "GGUF Model");
+    }
+
+    #[test]
+    fn detects_pe() {
+        let mut buf = vec![0u8; 16];
+        buf[0] = b'M';
+        buf[1] = b'Z';
+        let (editor, _t) = editor_with(&buf);
+        let info = parse_header(&editor);
+        assert_eq!(info.format_name, "PE Executable");
+    }
+
+    #[test]
+    fn detects_png() {
+        let mut buf = vec![0u8; 32];
+        buf[0..8].copy_from_slice(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]);
+        let (editor, _t) = editor_with(&buf);
+        let info = parse_header(&editor);
+        assert_eq!(info.format_name, "PNG Image");
+    }
+
+    #[test]
+    fn unknown_falls_back_to_generic() {
+        let (editor, _t) = editor_with(&[0x01, 0x02, 0x03, 0x04, 0x05]);
+        let info = parse_header(&editor);
+        assert_eq!(info.format_name, "Unknown Format");
     }
 }

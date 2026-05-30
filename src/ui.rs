@@ -27,7 +27,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // file info bar
-            Constraint::Min(5),   // main content
+            Constraint::Min(5),    // main content
             Constraint::Length(3), // status bar
         ])
         .split(size);
@@ -72,9 +72,10 @@ fn draw_info_bar(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(GREEN_DIM))
         .style(Style::default().bg(HEADER_BG));
 
-    let paragraph = Paragraph::new(Line::from(vec![
-        Span::styled(info_text, Style::default().fg(GREEN_BRIGHT)),
-    ]))
+    let paragraph = Paragraph::new(Line::from(vec![Span::styled(
+        info_text,
+        Style::default().fg(GREEN_BRIGHT),
+    )]))
     .block(block);
 
     f.render_widget(paragraph, area);
@@ -86,7 +87,9 @@ fn draw_hex_view(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(GREEN_DIM))
         .title(Span::styled(
             " Hex Forge ",
-            Style::default().fg(GREEN_BRIGHT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(GREEN_BRIGHT)
+                .add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().bg(BG));
 
@@ -133,9 +136,7 @@ fn draw_hex_view(f: &mut Frame, app: &App, area: Rect) {
                         .bg(GREEN_BRIGHT)
                         .add_modifier(Modifier::BOLD)
                 } else if is_selected {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(CYAN)
+                    Style::default().fg(Color::Black).bg(CYAN)
                 } else if is_modified {
                     Style::default().fg(YELLOW).add_modifier(Modifier::BOLD)
                 } else if is_null {
@@ -145,8 +146,7 @@ fn draw_hex_view(f: &mut Frame, app: &App, area: Rect) {
                 };
 
                 // Show pending nibble
-                let hex_str = if is_cursor && app.hex_nibble.is_some() {
-                    let high = app.hex_nibble.unwrap();
+                let hex_str = if let (true, Some(high)) = (is_cursor, app.hex_nibble) {
                     style = Style::default()
                         .fg(Color::Black)
                         .bg(YELLOW)
@@ -183,7 +183,7 @@ fn draw_hex_view(f: &mut Frame, app: &App, area: Rect) {
                     .map(|(lo, hi)| offset >= lo && offset <= hi)
                     .unwrap_or(false);
 
-                let ch = if byte >= 0x20 && byte < 0x7f {
+                let ch = if (0x20..0x7f).contains(&byte) {
                     byte as char
                 } else {
                     '.'
@@ -227,7 +227,9 @@ fn draw_header_info(f: &mut Frame, app: &App, area: Rect) {
         .border_style(Style::default().fg(GREEN_DIM))
         .title(Span::styled(
             format!(" {} — Header Info (F1 to return) ", info.format_name),
-            Style::default().fg(GREEN_BRIGHT).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(GREEN_BRIGHT)
+                .add_modifier(Modifier::BOLD),
         ))
         .style(Style::default().bg(BG));
 
@@ -237,7 +239,9 @@ fn draw_header_info(f: &mut Frame, app: &App, area: Rect) {
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(Span::styled(
         format!("Format: {}", info.format_name),
-        Style::default().fg(GREEN_BRIGHT).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(GREEN_BRIGHT)
+            .add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
 
@@ -277,15 +281,10 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         InputMode::GotoOffset => {
             let msg = app.status_msg.as_deref().unwrap_or("Goto offset:");
             Line::from(vec![
-                Span::styled(
-                    format!("{} ", msg),
-                    Style::default().fg(GREEN_BRIGHT),
-                ),
+                Span::styled(format!("{} ", msg), Style::default().fg(GREEN_BRIGHT)),
                 Span::styled(
                     app.input_buf.clone(),
-                    Style::default()
-                        .fg(YELLOW)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(YELLOW).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     "_",
@@ -320,10 +319,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         }
         InputMode::Normal => {
             if let Some(ref msg) = app.status_msg {
-                Line::from(Span::styled(
-                    msg.clone(),
-                    Style::default().fg(GREEN_BRIGHT),
-                ))
+                Line::from(Span::styled(msg.clone(), Style::default().fg(GREEN_BRIGHT)))
             } else {
                 let help = " Ctrl+Q:Quit  Ctrl+S:Save  Ctrl+G:Goto  Ctrl+F:Find  /:Search  n:Next  Tab:Mode  F1:Info  v:Select  y:Copy";
                 Line::from(Span::styled(help, Style::default().fg(GREEN_DIM)))

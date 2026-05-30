@@ -62,7 +62,13 @@ impl Editor {
     }
 
     /// Read a range of bytes into a Vec.
+    ///
+    /// The range is clamped to the file. If `start` is past EOF, an empty
+    /// Vec is returned (callers treat a short read as "field unavailable").
     pub fn read_range(&self, start: usize, len: usize) -> Vec<u8> {
+        if start >= self.file_size {
+            return Vec::new();
+        }
         let end = (start + len).min(self.file_size);
         let mut buf = Vec::with_capacity(end - start);
         for i in start..end {
@@ -167,5 +173,130 @@ impl Editor {
             }
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Create a temp file with the given contents and open it as an Editor.
+    fn editor_with(bytes: &[u8], readonly: bool) -> (Editor, tempdir::TempPath) {
+        let path = tempdir::TempPath::new(bytes);
+        let editor = Editor::open(path.as_path(), readonly).unwrap();
+        (editor, path)
+    }
+
+    /// Minimal self-contained temp-file helper (no external dev-dependency).
+    mod tempdir {
+        use std::fs;
+        use std::io::Write;
+        use std::path::{Path, PathBuf};
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+        pub struct TempPath(PathBuf);
+
+        impl TempPath {
+            pub fn new(bytes: &[u8]) -> Self {
+                let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+                let mut path = std::env::temp_dir();
+                path.push(format!("hex-forge-test-{}-{}.bin", std::process::id(), n));
+                let mut f = fs::File::create(&path).unwrap();
+                f.write_all(bytes).unwrap();
+                f.sync_all().unwrap();
+                TempPath(path)
+            }
+
+            pub fn as_path(&self) -> &Path {
+                &self.0
+            }
+        }
+
+        impl Drop for TempPath {
+            fn drop(&mut self) {
+                let _ = fs::remove_file(&self.0);
+            }
+        }
+    }
+
+    #[test]
+    fn read_byte_and_range_from_mmap() {
+        let (editor, _p) = editor_with(&[0x10, 0x20, 0x30, 0x40], false);
+        assert_eq!(editor.file_size(), 4);
+        assert_eq!(editor.read_byte(0), Some(0x10));
+        assert_eq!(editor.read_byte(3), Some(0x40));
+        assert_eq!(editor.read_byte(4), None);
+        assert_eq!(editor.read_range(1, 2), vec![0x20, 0x30]);
+        // read_range is clamped to file size
+        assert_eq!(editor.read_range(2, 10), vec![0x30, 0x40]);
+        // start at or past EOF yields an empty Vec (no underflow panic)
+        assert_eq!(editor.read_range(4, 4), Vec::<u8>::new());
+        assert_eq!(editor.read_range(100, 8), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn write_byte_overlays_without_touching_disk() {
+        let (mut editor, _p) = editor_with(&[0xAA, 0xBB], false);
+        assert!(!editor.is_modified(0));
+        assert!(editor.write_byte(0, 0xFF));
+        assert_eq!(editor.read_byte(0), Some(0xFF));
+        assert!(editor.is_modified(0));
+        assert!(editor.has_edits());
+        // Out-of-range write is rejected
+        assert!(!editor.write_byte(99, 0x00));
+    }
+
+    #[test]
+    fn readonly_rejects_writes() {
+        let (mut editor, _p) = editor_with(&[0x01, 0x02], true);
+        assert!(!editor.write_byte(0, 0xFF));
+        assert_eq!(editor.read_byte(0), Some(0x01));
+        assert!(!editor.has_edits());
+    }
+
+    #[test]
+    fn empty_file_is_rejected() {
+        let p = tempdir::TempPath::new(&[]);
+        match Editor::open(p.as_path(), false) {
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidInput),
+            Ok(_) => panic!("expected empty file to be rejected"),
+        }
+    }
+
+    #[test]
+    fn search_finds_pattern_and_respects_start() {
+        let (editor, _p) = editor_with(&[0x00, 0xDE, 0xAD, 0xBE, 0xEF, 0xDE, 0xAD], false);
+        assert_eq!(editor.search(&[0xDE, 0xAD], 0), Some(1));
+        // starting past the first match finds the second occurrence
+        assert_eq!(editor.search(&[0xDE, 0xAD], 2), Some(5));
+        assert_eq!(editor.search(&[0x12, 0x34], 0), None);
+        // empty pattern / out-of-range start return None
+        assert_eq!(editor.search(&[], 0), None);
+        assert_eq!(editor.search(&[0x00], 99), None);
+    }
+
+    #[test]
+    fn search_reflects_overlay_edits() {
+        let (mut editor, _p) = editor_with(&[0x00, 0x00, 0x00], false);
+        assert_eq!(editor.search(&[0xCA, 0xFE], 0), None);
+        editor.write_byte(1, 0xCA);
+        editor.write_byte(2, 0xFE);
+        assert_eq!(editor.search(&[0xCA, 0xFE], 0), Some(1));
+    }
+
+    #[test]
+    fn save_persists_edits_to_disk() {
+        let p = tempdir::TempPath::new(&[0x01, 0x02, 0x03]);
+        {
+            let mut editor = Editor::open(p.as_path(), false).unwrap();
+            editor.write_byte(1, 0xFF);
+            editor.save().unwrap();
+            assert!(!editor.has_edits());
+        }
+        // Re-read from a fresh handle to confirm the byte hit disk.
+        let reread = std::fs::read(p.as_path()).unwrap();
+        assert_eq!(reread, vec![0x01, 0xFF, 0x03]);
     }
 }
