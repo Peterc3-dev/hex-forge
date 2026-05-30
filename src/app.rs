@@ -113,7 +113,9 @@ impl App {
     pub fn page_up(&mut self) {
         let page = self.visible_lines.saturating_sub(1) * 16;
         self.cursor = self.cursor.saturating_sub(page);
-        self.scroll_offset = self.scroll_offset.saturating_sub(self.visible_lines.saturating_sub(1));
+        self.scroll_offset = self
+            .scroll_offset
+            .saturating_sub(self.visible_lines.saturating_sub(1));
         self.ensure_cursor_visible();
     }
 
@@ -195,7 +197,10 @@ impl App {
 
     pub fn execute_goto(&mut self) {
         let input = self.input_buf.trim().to_string();
-        let offset = if let Some(hex) = input.strip_prefix("0x").or_else(|| input.strip_prefix("0X")) {
+        let offset = if let Some(hex) = input
+            .strip_prefix("0x")
+            .or_else(|| input.strip_prefix("0X"))
+        {
             usize::from_str_radix(hex, 16).ok()
         } else {
             input.parse::<usize>().ok()
@@ -230,8 +235,8 @@ impl App {
 
         // Try to parse as hex pattern (contains only hex digits and spaces)
         let hex_input = input.replace(' ', "");
-        let is_hex = hex_input.len() % 2 == 0
-            && hex_input.chars().all(|c| c.is_ascii_hexdigit());
+        let is_hex =
+            hex_input.len().is_multiple_of(2) && hex_input.chars().all(|c| c.is_ascii_hexdigit());
 
         let pattern: Vec<u8> = if is_hex && hex_input.len() >= 2 {
             // Parse hex
@@ -322,5 +327,123 @@ impl App {
             let count = hi - lo + 1;
             self.status_msg = Some(format!("Copied {} bytes to clipboard", count));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    struct TempBin(PathBuf);
+
+    impl TempBin {
+        fn new(bytes: &[u8]) -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+            let mut path = std::env::temp_dir();
+            path.push(format!("hex-forge-app-{}-{}.bin", std::process::id(), n));
+            fs::write(&path, bytes).unwrap();
+            TempBin(path)
+        }
+    }
+
+    impl Drop for TempBin {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    fn app_with(bytes: &[u8]) -> (App, TempBin) {
+        let tmp = TempBin::new(bytes);
+        let app = App::open(&tmp.0, false).unwrap();
+        (app, tmp)
+    }
+
+    #[test]
+    fn goto_accepts_hex_and_decimal() {
+        let (mut app, _t) = app_with(&[0u8; 64]);
+
+        app.input_buf = "0x10".into();
+        app.execute_goto();
+        assert_eq!(app.cursor, 0x10);
+
+        app.input_buf = "32".into();
+        app.execute_goto();
+        assert_eq!(app.cursor, 32);
+
+        // Uppercase prefix is also accepted.
+        app.input_buf = "0X0A".into();
+        app.execute_goto();
+        assert_eq!(app.cursor, 0x0A);
+    }
+
+    #[test]
+    fn goto_rejects_out_of_range_and_garbage() {
+        let (mut app, _t) = app_with(&[0u8; 16]);
+        app.cursor = 5;
+
+        app.input_buf = "0x1000".into(); // beyond file size
+        app.execute_goto();
+        assert_eq!(app.cursor, 5); // unchanged
+
+        app.input_buf = "notanumber".into();
+        app.execute_goto();
+        assert_eq!(app.cursor, 5); // unchanged
+    }
+
+    #[test]
+    fn search_parses_hex_pattern() {
+        let (mut app, _t) = app_with(&[0x00, 0xDE, 0xAD, 0xBE, 0xEF]);
+        app.input_buf = "DE AD".into();
+        app.execute_search();
+        assert_eq!(app.search_pattern, vec![0xDE, 0xAD]);
+        assert_eq!(app.cursor, 1);
+    }
+
+    #[test]
+    fn search_falls_back_to_ascii() {
+        let (mut app, _t) = app_with(b"hello world");
+        app.input_buf = "world".into();
+        app.execute_search();
+        assert_eq!(app.search_pattern, b"world".to_vec());
+        assert_eq!(app.cursor, 6);
+    }
+
+    #[test]
+    fn search_wraps_around() {
+        let (mut app, _t) = app_with(&[0xAB, 0x00, 0x00, 0x00]);
+        app.cursor = 2; // start after the only match
+        app.input_buf = "AB".into();
+        app.execute_search();
+        assert_eq!(app.cursor, 0); // wrapped to the start
+    }
+
+    #[test]
+    fn selection_range_is_order_independent() {
+        let (mut app, _t) = app_with(&[0u8; 32]);
+        app.selection_start = Some(10);
+        app.cursor = 4;
+        assert_eq!(app.selection_range(), Some((4, 10)));
+        app.cursor = 20;
+        assert_eq!(app.selection_range(), Some((10, 20)));
+        app.selection_start = None;
+        assert_eq!(app.selection_range(), None);
+    }
+
+    #[test]
+    fn hex_nibble_accumulates_then_writes_a_byte() {
+        let (mut app, _t) = app_with(&[0x00, 0x00]);
+        app.input_hex_digit('a');
+        assert_eq!(app.hex_nibble, Some(0x0A));
+        assert!(!app.modified); // nothing written yet
+        app.input_hex_digit('5');
+        assert_eq!(app.hex_nibble, None);
+        assert_eq!(app.editor.read_byte(0), Some(0xA5));
+        assert!(app.modified);
+        assert_eq!(app.cursor, 1); // advanced
     }
 }

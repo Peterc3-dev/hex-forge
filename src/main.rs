@@ -17,7 +17,10 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use app::{App, EditMode, InputMode, View};
 
 #[derive(Parser)]
-#[command(name = "hex-forge", about = "Terminal hex editor with file format awareness")]
+#[command(
+    name = "hex-forge",
+    about = "Terminal hex editor with file format awareness"
+)]
 struct Cli {
     /// File to open
     file: PathBuf,
@@ -71,10 +74,7 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn run_app(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    app: &mut App,
-) -> io::Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
         terminal.draw(|f| ui::draw(f, app))?;
 
@@ -134,8 +134,9 @@ fn run_app(
                 KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     if app.modified {
                         app.input_mode = InputMode::QuitConfirm;
-                        app.status_msg =
-                            Some("Unsaved changes! Press Y to quit, any other key to cancel".to_string());
+                        app.status_msg = Some(
+                            "Unsaved changes! Press Y to quit, any other key to cancel".to_string(),
+                        );
                     } else {
                         return Ok(());
                     }
@@ -146,13 +147,13 @@ fn run_app(
                 KeyCode::Char('g') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     app.input_mode = InputMode::GotoOffset;
                     app.input_buf.clear();
-                    app.status_msg = Some("Goto offset (hex with 0x prefix, or decimal):".to_string());
+                    app.status_msg =
+                        Some("Goto offset (hex with 0x prefix, or decimal):".to_string());
                 }
                 KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     app.input_mode = InputMode::Search;
                     app.input_buf.clear();
-                    app.status_msg =
-                        Some("Search (hex: \"FF 00\", ascii: \"text\"):".to_string());
+                    app.status_msg = Some("Search (hex: \"FF 00\", ascii: \"text\"):".to_string());
                 }
 
                 // View toggle
@@ -167,8 +168,7 @@ fn run_app(
                 KeyCode::Char('/') => {
                     app.input_mode = InputMode::Search;
                     app.input_buf.clear();
-                    app.status_msg =
-                        Some("Search (hex: \"FF 00\", ascii: \"text\"):".to_string());
+                    app.status_msg = Some("Search (hex: \"FF 00\", ascii: \"text\"):".to_string());
                 }
                 KeyCode::Char('n') if app.edit_mode == EditMode::Hex && app.view == View::Hex => {
                     app.find_next();
@@ -219,28 +219,29 @@ fn run_app(
                         app.status_msg = Some("Selection cleared".to_string());
                     } else {
                         app.selection_start = Some(app.cursor);
-                        app.status_msg = Some("Selection started (move cursor, 'y' to copy)".to_string());
+                        app.status_msg =
+                            Some("Selection started (move cursor, 'y' to copy)".to_string());
                     }
                 }
-                KeyCode::Char('y') if app.edit_mode == EditMode::Hex && app.selection_start.is_some() => {
+                KeyCode::Char('y')
+                    if app.edit_mode == EditMode::Hex && app.selection_start.is_some() =>
+                {
                     app.copy_selection();
                 }
 
                 // Editing
-                KeyCode::Char(c) if app.view == View::Hex => {
-                    match app.edit_mode {
-                        EditMode::Hex => {
-                            if c.is_ascii_hexdigit() {
-                                app.input_hex_digit(c);
-                            }
-                        }
-                        EditMode::Ascii => {
-                            if c.is_ascii() && !c.is_ascii_control() {
-                                app.input_ascii_char(c);
-                            }
+                KeyCode::Char(c) if app.view == View::Hex => match app.edit_mode {
+                    EditMode::Hex => {
+                        if c.is_ascii_hexdigit() {
+                            app.input_hex_digit(c);
                         }
                     }
-                }
+                    EditMode::Ascii => {
+                        if c.is_ascii() && !c.is_ascii_control() {
+                            app.input_ascii_char(c);
+                        }
+                    }
+                },
 
                 KeyCode::Esc => {
                     app.selection_start = None;
